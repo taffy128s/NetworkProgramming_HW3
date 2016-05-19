@@ -76,8 +76,10 @@ void *run(void *arg) {
 	}
 	unsigned idxToDelete;
 	for (idxToDelete = 0; idxToDelete < onlineUserList.size(); idxToDelete++)
-		if (onlineUserList[idxToDelete] == fdToUsername[connfd]) break;
-	onlineUserList.erase(onlineUserList.begin() + idxToDelete);
+		if (onlineUserList[idxToDelete] == fdToUsername[connfd]) {
+			onlineUserList.erase(onlineUserList.begin() + idxToDelete);
+			break;
+		}
 	puts("A thread terminated.");
 	close(connfd);
 	return NULL;
