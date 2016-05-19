@@ -1,4 +1,4 @@
-CC = g++ -Wall -std=c++11
+CC = g++ -Wall -std=c++11 -pthread
 
 compile:
 	$(CC) -o HW3_103062122_Ser HW3_103062122_Ser.cpp
