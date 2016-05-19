@@ -70,7 +70,7 @@ void *run(void *arg) {
 		} else if (!strcmp("L", command)) {
 			char username[100] = {0}, password[100] = {0};
 			sscanf(recv, "%*s%s%s", username, password);
-
+			loginAccount(connfd, username, password);
 		}
 		bzero(recv, sizeof(recv));
 	}
@@ -80,6 +80,7 @@ void *run(void *arg) {
 			onlineUserList.erase(onlineUserList.begin() + idxToDelete);
 			break;
 		}
+	fdToUsername[connfd] = "";
 	puts("A thread terminated.");
 	close(connfd);
 	return NULL;
