@@ -14,7 +14,7 @@
 #define MAX 2048
 
 void showMenu() {
-	
+
 }
 
 int main(int argc, char **argv) {
@@ -22,22 +22,22 @@ int main(int argc, char **argv) {
 		puts("Usage: a.out <ServerIP> <ServerPort>");
 		exit(0);
 	}
-	
+
 	char sendline[MAX], command[MAX], recv[MAX];
 	int sockfd;
 	struct sockaddr_in servaddr;
-	
+
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(atoi(argv[2]));
 	inet_pton(AF_INET, argv[1], &servaddr.sin_addr);
-	
+
 	if (connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
 		puts("Connect error");
 		exit(0);
 	}
-	
+
 	puts("**********Welcome**********");
 	puts("[R]egister [L]ogin");
 	bzero(sendline, sizeof(sendline));
@@ -57,7 +57,19 @@ int main(int argc, char **argv) {
 			exit(0);
 		}
 	} else if (!strcmp("L\n", sendline)) {
-		
+		puts("Please enter an existing pair of username and password.");
+		bzero(command, sizeof(command));
+		fgets(command, MAX, stdin);
+		strcat(sendline, command);
+		write(sockfd, sendline, strlen(sendline));
+		bzero(recv, sizeof(recv));
+		read(sockfd, recv, MAX);
+		if (!strcmp("ok", recv)) {
+			puts("Login successfully.");
+		} else {
+			puts("Failed to login.");
+			exit(0);
+		}
 	} else {
 		puts("You didn't input a valid command");
 		exit(0);
@@ -70,8 +82,8 @@ int main(int argc, char **argv) {
 		bzero(command, sizeof(command));
 		bzero(recv, sizeof(recv));
 		if (fgets(sendline, MAX, stdin) == NULL) break;
-		
+
 	}
-	
+
 	return 0;
 }
