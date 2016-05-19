@@ -102,8 +102,14 @@ int main(int argc, char **argv) {
 	servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	servaddr.sin_port = htons(atoi(argv[1]));
 
-	bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr));
-	listen(listenfd, 1024);
+	if (bind(listenfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
+		puts("Bind error.");
+		exit(0);
+	}
+	if (listen(listenfd, 1024) < 0) {
+		puts("Listen error.");
+		exit(0);
+	}
 
 	while (1) {
 		clilen = sizeof(cliaddr);
