@@ -117,7 +117,7 @@ int main(int argc, char **argv) {
 	while (1) {
 		clilen = sizeof(cliaddr);
 		connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &clilen);
-		printf("Connection from: %s, port: %d\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
+		printf("Connection from: %s, port: %d.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 		pthread_create(&tid, NULL, &run, (void *) &connfd);
 	}
 	return 0;

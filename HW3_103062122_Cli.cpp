@@ -34,7 +34,7 @@ int main(int argc, char **argv) {
 	inet_pton(AF_INET, argv[1], &servaddr.sin_addr);
 
 	if (connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
-		puts("Connect error");
+		puts("Connect error.");
 		exit(0);
 	}
 
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
 			exit(0);
 		}
 	} else {
-		puts("You didn't input a valid command");
+		puts("You didn't input a valid command.");
 		exit(0);
 	}
 	while (1) {
