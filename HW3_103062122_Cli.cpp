@@ -14,7 +14,10 @@
 #define MAX 2048
 
 void showMenu() {
-
+	puts("--------------------");
+	puts("[L]ogout");
+	puts("[D]elete account");
+	puts("--------------------");
 }
 
 int main(int argc, char **argv) {
@@ -23,8 +26,8 @@ int main(int argc, char **argv) {
 		exit(0);
 	}
 
-	char sendline[MAX], command[MAX], recv[MAX];
-	int sockfd;
+	char sendline[MAX], command[MAX], recv[MAX], username[100] = {0};
+	int sockfd, port;
 	struct sockaddr_in servaddr, sin;
 	socklen_t len = sizeof(sin);
 
@@ -42,7 +45,7 @@ int main(int argc, char **argv) {
 	if (getsockname(sockfd, (struct sockaddr *) &sin, &len) < 0) {
 		puts("Getsockname error.");
 	} else {
-		printf("Port number: %d\n", ntohs(sin.sin_port));
+		port = ntohs(sin.sin_port);
 	}
 
 	puts("**********Welcome**********");
@@ -50,9 +53,10 @@ int main(int argc, char **argv) {
 	bzero(sendline, sizeof(sendline));
 	fgets(sendline, MAX, stdin);
 	if (!strcmp("R\n", sendline)) {
-		puts("Please enter a new pair of username and password.");
+		puts("\nPlease enter a new pair of username and password.");
 		bzero(command, sizeof(command));
 		fgets(command, MAX, stdin);
+		sscanf(command, "%s", username);
 		strcat(sendline, command);
 		write(sockfd, sendline, strlen(sendline));
 		bzero(recv, sizeof(recv));
@@ -64,9 +68,10 @@ int main(int argc, char **argv) {
 			exit(0);
 		}
 	} else if (!strcmp("L\n", sendline)) {
-		puts("Please enter an existing pair of username and password.");
+		puts("\nPlease enter an existing pair of username and password.");
 		bzero(command, sizeof(command));
 		fgets(command, MAX, stdin);
+		sscanf(command, "%s", username);
 		strcat(sendline, command);
 		write(sockfd, sendline, strlen(sendline));
 		bzero(recv, sizeof(recv));
@@ -81,6 +86,7 @@ int main(int argc, char **argv) {
 		puts("You didn't input a valid command.");
 		exit(0);
 	}
+	printf("\n**********Hello %s**********\n", username);
 	while (1) {
 		puts("You can input the following commands:");
 		showMenu();
@@ -89,7 +95,16 @@ int main(int argc, char **argv) {
 		bzero(command, sizeof(command));
 		bzero(recv, sizeof(recv));
 		if (fgets(sendline, MAX, stdin) == NULL) break;
-
+		if (!strcmp("L\n", sendline)) {
+			printf("User %s logged out.\n", username);
+			break;
+		} else if (!strcmp("D\n", sendline)) {
+			strcat(sendline, username);
+			write(sockfd, sendline, strlen(sendline));
+			read(sockfd, recv, MAX);
+			printf("%s", recv);
+			break;
+		} 
 	}
 
 	return 0;

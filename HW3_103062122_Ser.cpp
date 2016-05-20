@@ -32,9 +32,20 @@ inline void lockUserInf() {
 }
 
 inline void unlockUserInf() {
-	pthread_mutex_lock(&userAndPassword_mutex);
-	pthread_mutex_lock(&onlineUserList_mutex);
-	pthread_mutex_lock(&fdToUsername_mutex);
+	pthread_mutex_unlock(&userAndPassword_mutex);
+	pthread_mutex_unlock(&onlineUserList_mutex);
+	pthread_mutex_unlock(&fdToUsername_mutex);
+}
+
+void deleteAccount(int sockfd, char *username) {
+	char sendline[MAX] = {0};
+	string userName = username;
+	lockUserInf();
+	userAndPassword[userName] = "";
+	puts("A user just deleted his/her account.");
+	sprintf(sendline, "User %s is deleted, logged out.\n", username);
+	write(sockfd, sendline, strlen(sendline));
+	unlockUserInf();
 }
 
 void registerAccount(int sockfd, char *username, char *password) {
@@ -91,6 +102,10 @@ void *run(void *arg) {
 			char username[100] = {0}, password[100] = {0};
 			sscanf(recv, "%*s%s%s", username, password);
 			loginAccount(connfd, username, password);
+		} else if (!strcmp("D", command)) {
+			char username[100] = {0};
+			sscanf(recv, "%*s%s", username);
+			deleteAccount(connfd, username);
 		}
 		bzero(recv, sizeof(recv));
 	}
