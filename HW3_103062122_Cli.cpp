@@ -25,7 +25,8 @@ int main(int argc, char **argv) {
 
 	char sendline[MAX], command[MAX], recv[MAX];
 	int sockfd;
-	struct sockaddr_in servaddr;
+	struct sockaddr_in servaddr, sin;
+	socklen_t len = sizeof(sin);
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	bzero(&servaddr, sizeof(servaddr));
@@ -36,6 +37,12 @@ int main(int argc, char **argv) {
 	if (connect(sockfd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0) {
 		puts("Connect error.");
 		exit(0);
+	}
+
+	if (getsockname(sockfd, (struct sockaddr *) &sin, &len) < 0) {
+		puts("Getsockname error.");
+	} else {
+		printf("Port number: %d\n", ntohs(sin.sin_port));
 	}
 
 	puts("**********Welcome**********");
