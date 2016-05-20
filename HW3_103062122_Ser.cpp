@@ -17,14 +17,31 @@
 
 using namespace std;
 
+pthread_mutex_t userAndPassword_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t onlineUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t fdToUsername_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 map<string, string> userAndPassword;
 vector<string> onlineUserList;
 string fdToUsername[FD_SETSIZE];
+
+inline void lockUserInf() {
+	pthread_mutex_lock(&userAndPassword_mutex);
+	pthread_mutex_lock(&onlineUserList_mutex);
+	pthread_mutex_lock(&fdToUsername_mutex);
+}
+
+inline void unlockUserInf() {
+	pthread_mutex_lock(&userAndPassword_mutex);
+	pthread_mutex_lock(&onlineUserList_mutex);
+	pthread_mutex_lock(&fdToUsername_mutex);
+}
 
 void registerAccount(int sockfd, char *username, char *password) {
 	char sendline[MAX] = {0};
 	string userName = username;
 	string passWord = password;
+	lockUserInf();
 	if (userAndPassword[userName] == "") {
 		userAndPassword[userName] = passWord;
 		onlineUserList.push_back(userName);
@@ -36,12 +53,14 @@ void registerAccount(int sockfd, char *username, char *password) {
 		sprintf(sendline, "no");
 		write(sockfd, sendline, strlen(sendline));
 	}
+	unlockUserInf();
 }
 
 void loginAccount(int sockfd, char *username, char *password) {
 	char sendline[MAX] = {0};
 	string userName = username;
 	string passWord = password;
+	lockUserInf();
 	if (userAndPassword[userName] == "") {
 		puts("Somebody entered wrong username or password.");
 		sprintf(sendline, "no");
@@ -53,6 +72,7 @@ void loginAccount(int sockfd, char *username, char *password) {
 		sprintf(sendline, "ok");
 		write(sockfd, sendline, strlen(sendline));
 	}
+	unlockUserInf();
 }
 
 void *run(void *arg) {
@@ -74,6 +94,7 @@ void *run(void *arg) {
 		}
 		bzero(recv, sizeof(recv));
 	}
+	lockUserInf();
 	unsigned idxToDelete;
 	for (idxToDelete = 0; idxToDelete < onlineUserList.size(); idxToDelete++)
 		if (onlineUserList[idxToDelete] == fdToUsername[connfd]) {
@@ -81,6 +102,7 @@ void *run(void *arg) {
 			break;
 		}
 	fdToUsername[connfd] = "";
+	unlockUserInf();
 	puts("A thread terminated.");
 	close(connfd);
 	return NULL;
@@ -120,5 +142,6 @@ int main(int argc, char **argv) {
 		printf("Connection from: %s, port: %d.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 		pthread_create(&tid, NULL, &run, (void *) &connfd);
 	}
+	
 	return 0;
 }
