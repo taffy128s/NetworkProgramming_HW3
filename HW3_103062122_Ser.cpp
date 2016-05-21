@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <climits>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/socket.h>
@@ -22,6 +23,7 @@ pthread_mutex_t fdToUsername_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t userFileList_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fileUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fileSet_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t fdToCliaddr_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 std::set<std::string> fileSet;
 std::map<std::string, std::vector<std::string> > fileUserList;
@@ -29,6 +31,7 @@ std::map<std::string, std::vector<std::string> > userFileList;
 std::map<std::string, std::string> userAndPassword;
 std::vector<std::string> onlineUserList;
 std::string fdToUsername[FD_SETSIZE];
+struct sockaddr_in fdToCliaddr[FD_SETSIZE];
 
 inline void lockUserInf() {
 	pthread_mutex_lock(&userAndPassword_mutex);
@@ -37,6 +40,7 @@ inline void lockUserInf() {
 	pthread_mutex_lock(&userFileList_mutex);
 	pthread_mutex_lock(&fileUserList_mutex);
 	pthread_mutex_lock(&fileSet_mutex);
+	pthread_mutex_lock(&fdToCliaddr_mutex);
 }
 
 inline void unlockUserInf() {
@@ -46,6 +50,55 @@ inline void unlockUserInf() {
 	pthread_mutex_unlock(&userFileList_mutex);
 	pthread_mutex_unlock(&fileUserList_mutex);
 	pthread_mutex_unlock(&fileSet_mutex);
+	pthread_mutex_unlock(&fdToCliaddr_mutex);
+}
+
+inline int findUserFD(std::string userName) {
+	for (int i = 0; i < FD_SETSIZE; i++) {
+		if (fdToUsername[i] == userName) return i;
+	}
+	return INT_MAX;
+}
+
+void sendUserIPPort(int sockfd, char *username) {
+	lockUserInf();
+	std::string targetUser = username;
+	int targetFD = findUserFD(targetUser);
+	struct sockaddr_in sin = fdToCliaddr[targetFD];
+	char sendline[MAX] = {0};
+	char port[10] = {0};
+	sprintf(port, " %d", ntohs(sin.sin_port));
+	sprintf(sendline, "%s ", username);
+	strcat(sendline, inet_ntoa(sin.sin_addr));
+	strcat(sendline, port);
+	write(sockfd, sendline, strlen(sendline));
+	unlockUserInf();
+}
+
+void sendFileList(int sockfd) {
+	lockUserInf();
+	char sendline[MAX] = {0};
+	sprintf(sendline, "Files on server are:");
+	for (auto file : fileSet) {
+		strcat(sendline, "\n");
+		strcat(sendline, file.data());
+	}
+	strcat(sendline, "\n");
+	write(sockfd, sendline, strlen(sendline));
+	unlockUserInf();
+}
+
+void sendUserList(int sockfd) {
+	lockUserInf();
+	char sendline[MAX] = {0};
+	sprintf(sendline, "Online users are:");
+	for (auto user : onlineUserList) {
+		strcat(sendline, "\n");
+		strcat(sendline, user.data());
+	}
+	strcat(sendline, "\n");
+	write(sockfd, sendline, strlen(sendline));
+	unlockUserInf();
 }
 
 void mergeFileList() {
@@ -72,10 +125,24 @@ void readFileList(int sockfd, char *input) {
 		userFileList[userName].push_back(dataName);
 		token = strtok(NULL, " ");
 	}
+	puts("---------------");
 	printf("User %s has:\n", userName.data());
 	for (unsigned i = 0; i < userFileList[userName].size(); i++) {
 		puts(userFileList[userName][i].data());
 	}
+	puts("---------------");
+	unlockUserInf();
+}
+
+inline void removeOnlineStatus(int sockfd) {
+	lockUserInf();
+	unsigned idxToDelete;
+	for (idxToDelete = 0; idxToDelete < onlineUserList.size(); idxToDelete++)
+		if (onlineUserList[idxToDelete] == fdToUsername[sockfd]) {
+			onlineUserList.erase(onlineUserList.begin() + idxToDelete);
+			break;
+		}
+	fdToUsername[sockfd] = "";
 	unlockUserInf();
 }
 
@@ -149,18 +216,19 @@ void *run(void *arg) {
 		} else if (!strcmp("FileList", command)) {
 			readFileList(connfd, recv);
 			mergeFileList();
+		} else if (!strcmp("SU", command)) {
+			sendUserList(connfd);
+		} else if (!strcmp("SF", command)) {
+			sendFileList(connfd);
+		} else if (!strcmp("T", command)) {
+			char username[100] = {0};
+			sscanf(recv, "%*s%s", username);
+			sendUserIPPort(connfd, username);
 		}
 		bzero(recv, sizeof(recv));
 	}
-	lockUserInf();
-	unsigned idxToDelete;
-	for (idxToDelete = 0; idxToDelete < onlineUserList.size(); idxToDelete++)
-		if (onlineUserList[idxToDelete] == fdToUsername[connfd]) {
-			onlineUserList.erase(onlineUserList.begin() + idxToDelete);
-			break;
-		}
-	fdToUsername[connfd] = "";
-	unlockUserInf();
+	removeOnlineStatus(connfd);
+	mergeFileList();
 	puts("A thread terminated.");
 	close(connfd);
 	return NULL;
@@ -197,6 +265,9 @@ int main(int argc, char **argv) {
 	while (1) {
 		clilen = sizeof(cliaddr);
 		connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &clilen);
+		lockUserInf();
+		fdToCliaddr[connfd] = cliaddr;
+		unlockUserInf();
 		printf("Connection from: %s, port: %d.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 		pthread_create(&tid, NULL, &run, (void *) &connfd);
 	}

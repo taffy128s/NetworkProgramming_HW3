@@ -18,6 +18,9 @@ void showMenu() {
 	puts("--------------------");
 	puts("[L]ogout");
 	puts("[D]elete account");
+	puts("[SU]Show User");
+	puts("[SF]Show File");
+	puts("[T]alk");
 	puts("--------------------");
 }
 
@@ -124,6 +127,21 @@ int main(int argc, char **argv) {
 			read(sockfd, recv, MAX);
 			printf("%s", recv);
 			break;
+		} else if (!strcmp("SU\n", sendline)) {
+			write(sockfd, sendline, strlen(sendline));
+			read(sockfd, recv, MAX);
+			printf("%s", recv);
+		} else if (!strcmp("SF\n", sendline)) {
+			write(sockfd, sendline, strlen(sendline));
+			read(sockfd, recv, MAX);
+			printf("%s", recv);
+		} else if (!strcmp("T\n", sendline)) {
+			puts("Who do you want to talk to?");
+			fgets(command, MAX, stdin);
+			strcat(sendline, command);
+			write(sockfd, sendline, strlen(sendline));
+			read(sockfd, recv, MAX);
+			puts(recv);
 		}
 	}
 
