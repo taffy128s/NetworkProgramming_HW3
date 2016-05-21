@@ -141,7 +141,7 @@ int main(int argc, char **argv) {
 			strcat(sendline, command);
 			write(sockfd, sendline, strlen(sendline));
 			read(sockfd, recv, MAX);
-			puts(recv);
+			// TODO: chatting function
 		}
 	}
 
