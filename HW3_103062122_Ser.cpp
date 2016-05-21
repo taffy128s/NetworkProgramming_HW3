@@ -13,21 +13,22 @@
 #include <sstream>
 #include <map>
 #include <vector>
+#include <set>
 #define MAX 2048
-
-using namespace std;
 
 pthread_mutex_t userAndPassword_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t onlineUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fdToUsername_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t userFileList_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fileUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t fileSet_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-map<string, vector<string> > fileUserList;
-map<string, vector<string> > userFileList;
-map<string, string> userAndPassword;
-vector<string> onlineUserList;
-string fdToUsername[FD_SETSIZE];
+std::set<std::string> fileSet;
+std::map<std::string, std::vector<std::string> > fileUserList;
+std::map<std::string, std::vector<std::string> > userFileList;
+std::map<std::string, std::string> userAndPassword;
+std::vector<std::string> onlineUserList;
+std::string fdToUsername[FD_SETSIZE];
 
 inline void lockUserInf() {
 	pthread_mutex_lock(&userAndPassword_mutex);
@@ -35,6 +36,7 @@ inline void lockUserInf() {
 	pthread_mutex_lock(&fdToUsername_mutex);
 	pthread_mutex_lock(&userFileList_mutex);
 	pthread_mutex_lock(&fileUserList_mutex);
+	pthread_mutex_lock(&fileSet_mutex);
 }
 
 inline void unlockUserInf() {
@@ -43,16 +45,30 @@ inline void unlockUserInf() {
 	pthread_mutex_unlock(&fdToUsername_mutex);
 	pthread_mutex_unlock(&userFileList_mutex);
 	pthread_mutex_unlock(&fileUserList_mutex);
+	pthread_mutex_unlock(&fileSet_mutex);
+}
+
+void mergeFileList() {
+	lockUserInf();
+	fileSet.clear();
+	fileUserList.clear();
+	for (auto user : onlineUserList) {
+		for (auto file : userFileList[user]) {
+			fileSet.insert(file);
+			fileUserList[file].push_back(user);
+		}
+	}
+	unlockUserInf();
 }
 
 void readFileList(int sockfd, char *input) {
 	lockUserInf();
-	string userName = fdToUsername[sockfd];
+	std::string userName = fdToUsername[sockfd];
 	userFileList[userName].clear();
 	char *token = strtok(input, " ");
 	token = strtok(NULL, " ");
 	while (token) {
-		string dataName = token;
+		std::string dataName = token;
 		userFileList[userName].push_back(dataName);
 		token = strtok(NULL, " ");
 	}
@@ -66,7 +82,7 @@ void readFileList(int sockfd, char *input) {
 void deleteAccount(int sockfd) {
 	lockUserInf();
 	char sendline[MAX] = {0};
-	string userName = fdToUsername[sockfd];
+	std::string userName = fdToUsername[sockfd];
 	userAndPassword[userName] = "";
 	puts("A user just deleted his/her account.");
 	sprintf(sendline, "User %s is deleted, logged out.\n", userName.data());
@@ -77,8 +93,8 @@ void deleteAccount(int sockfd) {
 void registerAccount(int sockfd, char *username, char *password) {
 	lockUserInf();
 	char sendline[MAX] = {0};
-	string userName = username;
-	string passWord = password;
+	std::string userName = username;
+	std::string passWord = password;
 	if (userAndPassword[userName] == "") {
 		userAndPassword[userName] = passWord;
 		onlineUserList.push_back(userName);
@@ -96,8 +112,8 @@ void registerAccount(int sockfd, char *username, char *password) {
 void loginAccount(int sockfd, char *username, char *password) {
 	lockUserInf();
 	char sendline[MAX] = {0};
-	string userName = username;
-	string passWord = password;
+	std::string userName = username;
+	std::string passWord = password;
 	if (userAndPassword[userName] == "") {
 		puts("Somebody entered wrong username or password.");
 		sprintf(sendline, "no");
@@ -132,6 +148,7 @@ void *run(void *arg) {
 			deleteAccount(connfd);
 		} else if (!strcmp("FileList", command)) {
 			readFileList(connfd, recv);
+			mergeFileList();
 		}
 		bzero(recv, sizeof(recv));
 	}
