@@ -50,9 +50,10 @@ int main(int argc, char **argv) {
 	mkdir("./file", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 
 	char sendline[MAX], command[MAX], recv[MAX], username[100] = {0};
-	int sockfd, port;
-	struct sockaddr_in servaddr, sin;
+	int sockfd, port, myudpfd;
+	struct sockaddr_in servaddr, sin, myudpaddr;
 	socklen_t len = sizeof(sin);
+	pthread_t tid;
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	bzero(&servaddr, sizeof(servaddr));
@@ -70,6 +71,19 @@ int main(int argc, char **argv) {
 	} else {
 		port = ntohs(sin.sin_port);
 	}
+
+	/*****/
+
+	myudpfd = socket(AF_INET, SOCK_DGRAM, 0);
+	bzero(&myudpaddr, sizeof(myudpaddr));
+	myudpaddr.sin_family = AF_INET;
+	myudpaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	myudpaddr.sin_port = htons(port);
+
+	bind(udpfd, (struct sockaddr *) &myudpaddr, sizeof(myudpaddr));
+	pthread_create()
+
+	/****/
 
 	puts("**********Welcome**********");
 	puts("[R]egister [L]ogin");

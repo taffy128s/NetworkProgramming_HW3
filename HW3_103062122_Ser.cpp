@@ -136,6 +136,7 @@ void readFileList(int sockfd, char *input) {
 
 inline void removeOnlineStatus(int sockfd) {
 	lockUserInf();
+	printf("User %s logged out.\n", fdToUsername[sockfd].data());
 	unsigned idxToDelete;
 	for (idxToDelete = 0; idxToDelete < onlineUserList.size(); idxToDelete++)
 		if (onlineUserList[idxToDelete] == fdToUsername[sockfd]) {
@@ -229,7 +230,6 @@ void *run(void *arg) {
 	}
 	removeOnlineStatus(connfd);
 	mergeFileList();
-	puts("A thread terminated.");
 	close(connfd);
 	return NULL;
 }
