@@ -14,6 +14,29 @@
 #include <sstream>
 #define MAX 2048
 
+struct arg_struct {
+	int udpfd;
+	struct sockaddr_in udpaddr;
+};
+
+void *run(void *arg_in) {
+	struct arg_struct arg = *((struct arg_struct *) arg_in);
+	char recv[MAX] = {0}, command[MAX] = {0};
+	socklen_t len;
+	pthread_detach(pthread_self());
+	while (1) {
+		len = sizeof(arg.udpaddr);
+		recvfrom(arg.udpfd, recv, MAX, 0, (struct sockaddr *) &(arg.udpaddr), &len);
+		sscanf(recv, "%s", command);
+		if (!strcmp("download", command)) {
+			// TODO: download files from muitiple clients.
+		} else printf("    %s", recv);
+		bzero(recv, sizeof(recv));
+		bzero(command, sizeof(command));
+	}
+	return NULL;
+}
+
 void showMenu() {
 	puts("--------------------");
 	puts("[L]ogout");
@@ -22,6 +45,27 @@ void showMenu() {
 	puts("[SF]Show File");
 	puts("[T]alk");
 	puts("--------------------");
+}
+
+void chat(char *myusername, char *targetuserIP, int targetuserport) {
+	int sockfd;
+	struct sockaddr_in servaddr;
+	socklen_t len;
+	len = sizeof(servaddr);
+	bzero(&servaddr, sizeof(servaddr));
+	servaddr.sin_family = AF_INET;
+	servaddr.sin_port = htons(targetuserport);
+	inet_pton(AF_INET, targetuserIP, &servaddr.sin_addr);
+	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+	char sendline[MAX] = {0}, buffer[MAX] = {0};
+	sprintf(sendline, "%s: ", myusername);
+	while ((fgets(buffer, MAX, stdin) != NULL)) {
+		strcat(sendline, buffer);
+		sendto(sockfd, sendline, strlen(sendline), 0, (struct sockaddr *) &servaddr, len);
+		bzero(buffer, sizeof(buffer));
+		bzero(sendline, sizeof(sendline));
+		sprintf(sendline, "%s: ", myusername);
+	}
 }
 
 void sendFileList(int sockfd) {
@@ -80,8 +124,11 @@ int main(int argc, char **argv) {
 	myudpaddr.sin_addr.s_addr = htonl(INADDR_ANY);
 	myudpaddr.sin_port = htons(port);
 
-	bind(udpfd, (struct sockaddr *) &myudpaddr, sizeof(myudpaddr));
-	pthread_create()
+	bind(myudpfd, (struct sockaddr *) &myudpaddr, sizeof(myudpaddr));
+	struct arg_struct arg;
+	arg.udpaddr = myudpaddr;
+	arg.udpfd = myudpfd;
+	pthread_create(&tid, NULL, &run, (void *) &arg);
 
 	/****/
 
@@ -156,6 +203,10 @@ int main(int argc, char **argv) {
 			write(sockfd, sendline, strlen(sendline));
 			read(sockfd, recv, MAX);
 			// TODO: chatting function
+			char targetuserIP[100] = {0};
+			int targetuserport;
+			sscanf(recv, "%*s%s%d", targetuserIP, &targetuserport);
+			chat(username, targetuserIP, targetuserport);
 		}
 	}
 
