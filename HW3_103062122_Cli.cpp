@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <unistd.h>
+#include <dirent.h>
 #include <pthread.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -20,11 +21,30 @@ void showMenu() {
 	puts("--------------------");
 }
 
+void sendFileList(int sockfd) {
+	char sendline[MAX] = {0};
+	sprintf(sendline, "FileList ");
+	DIR *dp;
+	struct dirent *ep;
+	dp = opendir("./file/");
+	if (dp != NULL) {
+		while ((ep = readdir(dp))) {
+			if (!strcmp(".", ep->d_name) || !strcmp("..", ep->d_name)) continue;
+			strcat(sendline, " ");
+			strcat(sendline, ep->d_name);
+		}
+	}
+	write(sockfd, sendline, strlen(sendline));
+	puts("File list sent.");
+}
+
 int main(int argc, char **argv) {
 	if (argc != 3) {
 		puts("Usage: a.out <ServerIP> <ServerPort>");
 		exit(0);
 	}
+
+	mkdir("./file", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
 
 	char sendline[MAX], command[MAX], recv[MAX], username[100] = {0};
 	int sockfd, port;
@@ -86,6 +106,7 @@ int main(int argc, char **argv) {
 		puts("You didn't input a valid command.");
 		exit(0);
 	}
+	sendFileList(sockfd);
 	printf("\n**********Hello %s**********\n", username);
 	while (1) {
 		puts("You can input the following commands:");
@@ -99,12 +120,11 @@ int main(int argc, char **argv) {
 			printf("User %s logged out.\n", username);
 			break;
 		} else if (!strcmp("D\n", sendline)) {
-			strcat(sendline, username);
 			write(sockfd, sendline, strlen(sendline));
 			read(sockfd, recv, MAX);
 			printf("%s", recv);
 			break;
-		} 
+		}
 	}
 
 	return 0;

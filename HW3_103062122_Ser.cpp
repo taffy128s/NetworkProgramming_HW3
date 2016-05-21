@@ -20,7 +20,11 @@ using namespace std;
 pthread_mutex_t userAndPassword_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t onlineUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fdToUsername_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t userFileList_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t fileUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
 
+map<string, vector<string> > fileUserList;
+map<string, vector<string> > userFileList;
 map<string, string> userAndPassword;
 vector<string> onlineUserList;
 string fdToUsername[FD_SETSIZE];
@@ -29,30 +33,52 @@ inline void lockUserInf() {
 	pthread_mutex_lock(&userAndPassword_mutex);
 	pthread_mutex_lock(&onlineUserList_mutex);
 	pthread_mutex_lock(&fdToUsername_mutex);
+	pthread_mutex_lock(&userFileList_mutex);
+	pthread_mutex_lock(&fileUserList_mutex);
 }
 
 inline void unlockUserInf() {
 	pthread_mutex_unlock(&userAndPassword_mutex);
 	pthread_mutex_unlock(&onlineUserList_mutex);
 	pthread_mutex_unlock(&fdToUsername_mutex);
+	pthread_mutex_unlock(&userFileList_mutex);
+	pthread_mutex_unlock(&fileUserList_mutex);
 }
 
-void deleteAccount(int sockfd, char *username) {
-	char sendline[MAX] = {0};
-	string userName = username;
+void readFileList(int sockfd, char *input) {
 	lockUserInf();
+	string userName = fdToUsername[sockfd];
+	userFileList[userName].clear();
+	char *token = strtok(input, " ");
+	token = strtok(NULL, " ");
+	while (token) {
+		string dataName = token;
+		userFileList[userName].push_back(dataName);
+		token = strtok(NULL, " ");
+	}
+	printf("User %s has:\n", userName.data());
+	for (unsigned i = 0; i < userFileList[userName].size(); i++) {
+		puts(userFileList[userName][i].data());
+	}
+	unlockUserInf();
+}
+
+void deleteAccount(int sockfd) {
+	lockUserInf();
+	char sendline[MAX] = {0};
+	string userName = fdToUsername[sockfd];
 	userAndPassword[userName] = "";
 	puts("A user just deleted his/her account.");
-	sprintf(sendline, "User %s is deleted, logged out.\n", username);
+	sprintf(sendline, "User %s is deleted, logged out.\n", userName.data());
 	write(sockfd, sendline, strlen(sendline));
 	unlockUserInf();
 }
 
 void registerAccount(int sockfd, char *username, char *password) {
+	lockUserInf();
 	char sendline[MAX] = {0};
 	string userName = username;
 	string passWord = password;
-	lockUserInf();
 	if (userAndPassword[userName] == "") {
 		userAndPassword[userName] = passWord;
 		onlineUserList.push_back(userName);
@@ -68,10 +94,10 @@ void registerAccount(int sockfd, char *username, char *password) {
 }
 
 void loginAccount(int sockfd, char *username, char *password) {
+	lockUserInf();
 	char sendline[MAX] = {0};
 	string userName = username;
 	string passWord = password;
-	lockUserInf();
 	if (userAndPassword[userName] == "") {
 		puts("Somebody entered wrong username or password.");
 		sprintf(sendline, "no");
@@ -103,9 +129,9 @@ void *run(void *arg) {
 			sscanf(recv, "%*s%s%s", username, password);
 			loginAccount(connfd, username, password);
 		} else if (!strcmp("D", command)) {
-			char username[100] = {0};
-			sscanf(recv, "%*s%s", username);
-			deleteAccount(connfd, username);
+			deleteAccount(connfd);
+		} else if (!strcmp("FileList", command)) {
+			readFileList(connfd, recv);
 		}
 		bzero(recv, sizeof(recv));
 	}
@@ -157,6 +183,6 @@ int main(int argc, char **argv) {
 		printf("Connection from: %s, port: %d.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 		pthread_create(&tid, NULL, &run, (void *) &connfd);
 	}
-	
+
 	return 0;
 }
