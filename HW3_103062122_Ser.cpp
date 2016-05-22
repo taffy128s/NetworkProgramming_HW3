@@ -57,6 +57,13 @@ inline void unlockUserInf() {
 	pthread_mutex_unlock(&fileSizeMap_mutex);
 }
 
+inline int findUserFD(std::string userName) {
+	for (int i = 0; i < FD_SETSIZE; i++) {
+		if (fdToUsername[i] == userName) return i;
+	}
+	return INT_MAX;
+}
+
 void initialDownload(int sockfd, char *filename) {
 	lockUserInf();
 	std::string fileName = filename;
@@ -72,25 +79,41 @@ void initialDownload(int sockfd, char *filename) {
 		int packetNum = filesize / 512;
 		if (filesize % 512 > 0) packetNum++;
 		int offset = packetNum / ownerNum;
+		std::vector<std::string> &list = fileUserList[fileName];
 		for (int i = 0; i < ownerNum; i++) {
-			
+			int udpfd;
+			struct sockaddr_in udpaddr;
+			socklen_t len;
+			len = sizeof(udpaddr);
+			bzero(&udpaddr, sizeof(udpaddr));
+			udpaddr.sin_family = AF_INET;
+			int sourceFD = findUserFD(list[i]);
+			udpaddr.sin_port = fdToCliaddr[sourceFD].sin_port;
+			udpaddr.sin_addr = fdToCliaddr[sourceFD].sin_addr;
+			udpfd = socket(AF_INET, SOCK_DGRAM, 0);
+			char sendline[MAX] = {0};
+			struct sockaddr_in &sin = fdToCliaddr[sockfd];
+			int last = (i == ownerNum - 1) ? 1 : 0;
+			if (i == ownerNum - 1) sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, packetNum, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
+			else sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, (i + 1) * offset, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
+			sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
+			close(udpfd);
 		}
-		/*int udpfd;
+		int udpfd;
 		struct sockaddr_in udpaddr;
 		socklen_t len;
 		len = sizeof(udpaddr);
 		bzero(&udpaddr, sizeof(udpaddr));
 		udpaddr.sin_family = AF_INET;
-		udpaddr.sin_port = htons*/
+		udpaddr.sin_port = fdToCliaddr[sockfd].sin_port;
+		udpaddr.sin_addr = fdToCliaddr[sockfd].sin_addr;
+		udpfd = socket(AF_INET, SOCK_DGRAM, 0);
+		char sendline[MAX] = {0};
+		sprintf(sendline, "download %s %d\n", filename, filesize);
+		sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
+		close(udpfd);
 	}
 	unlockUserInf();
-}
-
-inline int findUserFD(std::string userName) {
-	for (int i = 0; i < FD_SETSIZE; i++) {
-		if (fdToUsername[i] == userName) return i;
-	}
-	return INT_MAX;
 }
 
 void sendUserIPPort(int sockfd, char *username) {
