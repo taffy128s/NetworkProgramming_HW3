@@ -57,6 +57,21 @@ inline void unlockUserInf() {
 	pthread_mutex_unlock(&fileSizeMap_mutex);
 }
 
+void initialDownload(int sockfd, char *filename) {
+	lockUserInf();
+	std::string fileName = filename;
+	char sendline[MAX] = {0};
+	if (fileSet.find(fileName) == fileSet.end()) {
+		sprintf(sendline, "no");
+		write(sockfd, sendline, strlen(sendline));
+	} else {
+		sprintf(sendline, "ok");
+		write(sockfd, sendline, strlen(sendline));
+		
+	}
+	unlockUserInf();
+}
+
 inline int findUserFD(std::string userName) {
 	for (int i = 0; i < FD_SETSIZE; i++) {
 		if (fdToUsername[i] == userName) return i;
@@ -233,6 +248,10 @@ void *run(void *arg) {
 			char username[100] = {0};
 			sscanf(recv, "%*s%s", username);
 			sendUserIPPort(connfd, username);
+		} else if (!strcmp("DF", command)) {
+			char filename[100] = {0};
+			sscanf(recv, "%*s%s", filename);
+			initialDownload(connfd, filename);
 		}
 		bzero(recv, sizeof(recv));
 	}

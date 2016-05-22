@@ -131,7 +131,6 @@ int main(int argc, char **argv) {
 	}
 
 	/*****/
-
 	myudpfd = socket(AF_INET, SOCK_DGRAM, 0);
 	bzero(&myudpaddr, sizeof(myudpaddr));
 	myudpaddr.sin_family = AF_INET;
@@ -143,7 +142,6 @@ int main(int argc, char **argv) {
 	arg.udpaddr = myudpaddr;
 	arg.udpfd = myudpfd;
 	pthread_create(&tid, NULL, &run, (void *) &arg);
-
 	/****/
 
 	puts("**********Welcome**********");
@@ -216,11 +214,21 @@ int main(int argc, char **argv) {
 			strcat(sendline, command);
 			write(sockfd, sendline, strlen(sendline));
 			read(sockfd, recv, MAX);
-			// TODO: chatting function
 			char targetuserIP[100] = {0};
 			int targetuserport;
 			sscanf(recv, "%*s%s%d", targetuserIP, &targetuserport);
 			chat(username, targetuserIP, targetuserport);
+		} else if (!strcmp("DF\n", sendline)) {
+			puts("What do you want to download?");
+			fgets(command, MAX, stdin);
+			strcat(sendline, command);
+			write(sockfd, sendline, strlen(sendline));
+			read(sockfd, recv, MAX);
+			char rep[100] = {0};
+			sscanf(recv, "%s", rep);
+			if (!strcmp("ok", rep)) {
+				puts("File is sending.");
+			} else puts("File not found.");
 		}
 	}
 
