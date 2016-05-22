@@ -67,7 +67,21 @@ void initialDownload(int sockfd, char *filename) {
 	} else {
 		sprintf(sendline, "ok");
 		write(sockfd, sendline, strlen(sendline));
-		
+		int filesize = fileSizeMap[fileName];
+		int ownerNum = fileUserList[fileName].size();
+		int packetNum = filesize / 512;
+		if (filesize % 512 > 0) packetNum++;
+		int offset = packetNum / ownerNum;
+		for (int i = 0; i < ownerNum; i++) {
+			
+		}
+		/*int udpfd;
+		struct sockaddr_in udpaddr;
+		socklen_t len;
+		len = sizeof(udpaddr);
+		bzero(&udpaddr, sizeof(udpaddr));
+		udpaddr.sin_family = AF_INET;
+		udpaddr.sin_port = htons*/
 	}
 	unlockUserInf();
 }
