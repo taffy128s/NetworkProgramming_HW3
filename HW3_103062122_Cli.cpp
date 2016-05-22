@@ -39,11 +39,13 @@ void *run(void *arg_in) {
 
 void showMenu() {
 	puts("--------------------");
+	puts("[T]alk");
 	puts("[L]ogout");
 	puts("[D]elete account");
 	puts("[SU]Show User");
 	puts("[SF]Show File");
-	puts("[T]alk");
+	puts("[DF]Download File");
+	puts("[UF]Upload File");
 	puts("--------------------");
 }
 
@@ -79,6 +81,18 @@ void sendFileList(int sockfd) {
 			if (!strcmp(".", ep->d_name) || !strcmp("..", ep->d_name)) continue;
 			strcat(sendline, " ");
 			strcat(sendline, ep->d_name);
+			FILE *pfile;
+			int fileSize;
+			char path[50] = {0};
+			sprintf(path, "./file/");
+			strcat(path, ep->d_name);
+			pfile = fopen(path, "rb");
+			fseek(pfile, 0, SEEK_END);
+			fileSize = ftell(pfile);
+			fclose(pfile);
+			char stringfilesize[50] = {0};
+			sprintf(stringfilesize, " %d", fileSize);
+			strcat(sendline, stringfilesize);
 		}
 	}
 	write(sockfd, sendline, strlen(sendline));

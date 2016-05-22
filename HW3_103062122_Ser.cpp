@@ -24,8 +24,10 @@ pthread_mutex_t userFileList_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fileUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fileSet_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t fdToCliaddr_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t fileSizeMap_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 std::set<std::string> fileSet;
+std::map<std::string, int> fileSizeMap;
 std::map<std::string, std::vector<std::string> > fileUserList;
 std::map<std::string, std::vector<std::string> > userFileList;
 std::map<std::string, std::string> userAndPassword;
@@ -41,6 +43,7 @@ inline void lockUserInf() {
 	pthread_mutex_lock(&fileUserList_mutex);
 	pthread_mutex_lock(&fileSet_mutex);
 	pthread_mutex_lock(&fdToCliaddr_mutex);
+	pthread_mutex_lock(&fileSizeMap_mutex);
 }
 
 inline void unlockUserInf() {
@@ -51,6 +54,7 @@ inline void unlockUserInf() {
 	pthread_mutex_unlock(&fileUserList_mutex);
 	pthread_mutex_unlock(&fileSet_mutex);
 	pthread_mutex_unlock(&fdToCliaddr_mutex);
+	pthread_mutex_unlock(&fileSizeMap_mutex);
 }
 
 inline int findUserFD(std::string userName) {
@@ -124,11 +128,14 @@ void readFileList(int sockfd, char *input) {
 		std::string dataName = token;
 		userFileList[userName].push_back(dataName);
 		token = strtok(NULL, " ");
+		std::string dataSize = token;
+		fileSizeMap[dataName] = atoi(dataSize.data());
+		token = strtok(NULL, " ");
 	}
 	puts("---------------");
 	printf("User %s has:\n", userName.data());
 	for (unsigned i = 0; i < userFileList[userName].size(); i++) {
-		puts(userFileList[userName][i].data());
+		printf("%s, size: %d\n", userFileList[userName][i].data(), fileSizeMap[userFileList[userName][i]]);
 	}
 	puts("---------------");
 	unlockUserInf();
@@ -136,7 +143,8 @@ void readFileList(int sockfd, char *input) {
 
 inline void removeOnlineStatus(int sockfd) {
 	lockUserInf();
-	printf("User %s logged out.\n", fdToUsername[sockfd].data());
+	if (fdToUsername[sockfd] == "") printf("User unknown logged out.\n");
+	else printf("User %s logged out.\n", fdToUsername[sockfd].data());
 	unsigned idxToDelete;
 	for (idxToDelete = 0; idxToDelete < onlineUserList.size(); idxToDelete++)
 		if (onlineUserList[idxToDelete] == fdToUsername[sockfd]) {
