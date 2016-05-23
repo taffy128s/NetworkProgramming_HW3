@@ -161,7 +161,7 @@ void *run(void *udpfd_in) {
 				sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &incomeudpaddr, len);
 				bzero(recv, sizeof(recv));
 				printf("\rDownload %d %%.\n", nowpacket * 100 / packetnum);
-				puts("[P]ause [C]ontinue [E]xit");
+				puts("[P]ause [C]ontinue [E]xit (only for downloading command)");
 				fflush(stdout);
 			}
 			fwrite(filedata, sizeof(char), filesize, fp);
@@ -396,23 +396,36 @@ int main(int argc, char **argv) {
 			sscanf(recv, "%s", rep);
 			if (!strcmp("ok", rep)) {
 				puts("File is sending.");
-			} else puts("File not found.");
-			char com[100];
-			mypause = 0;
-			while (1) {
-				bzero(com, sizeof(com));
-				fgets(com, 100, stdin);
-				if (!strcmp("P\n", com)) {
-					mypause = 1;
-				} else if (!strcmp("C\n", com)) {
-					mypause = 0;
-				} else if (!strcmp("E\n", com)) {
-					mypause = 2;
-					break;
+				char com[100];
+				mypause = 0;
+				while (1) {
+					bzero(com, sizeof(com));
+					fgets(com, 100, stdin);
+					if (!strcmp("P\n", com)) {
+						mypause = 1;
+					} else if (!strcmp("C\n", com)) {
+						mypause = 0;
+					} else if (!strcmp("E\n", com)) {
+						mypause = 2;
+						break;
+					}
 				}
-			}
+			} else puts("File not found.");
 		} else if (!strcmp("UF\n", sendline)) {
-			
+			puts("What do you want to upload?");
+			fgets(command, MAX, stdin);
+			strcat(sendline, command);
+			bzero(command, sizeof(command));
+			puts("Who do you want to send to?");
+			fgets(command, MAX, stdin);
+			strcat(sendline, command);
+			write(sockfd, sendline, strlen(sendline));
+			read(sockfd, recv, MAX);
+			char rep[100] = {0};
+			sscanf(recv, "%s", rep);
+			if (!strcmp("ok", rep)) {
+				puts("File is sending.");
+			} else puts("File not found.");
 		}
 	}
 

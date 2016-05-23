@@ -59,6 +59,60 @@ void stopDownload(int sockfd, char *filename) {
 	pthread_mutex_unlock(&mutex);
 }
 
+void initialUpload(int sockfd, char *filename, char *usertosend) {
+	pthread_mutex_lock(&mutex);
+	std::string fileName = filename;
+	std::string userToSend = usertosend;
+	int targetFD = findUserFD(userToSend);
+	char sendline[MAX] = {0};
+	if (fileSet.find(fileName) == fileSet.end()) {
+		sprintf(sendline, "no");
+		write(sockfd, sendline, strlen(sendline));
+	} else {
+		sprintf(sendline, "ok");
+		write(sockfd, sendline, strlen(sendline));
+		int filesize = fileSizeMap[fileName];
+		int ownerNum = fileUserList[fileName].size();
+		int packetNum = filesize / 512;
+		if (filesize % 512 > 0) packetNum++;
+		int offset = packetNum / ownerNum;
+		std::vector<std::string> &list = fileUserList[fileName];
+		for (int i = 0; i < ownerNum; i++) {
+			int udpfd;
+			struct sockaddr_in udpaddr;
+			socklen_t len;
+			len = sizeof(udpaddr);
+			bzero(&udpaddr, sizeof(udpaddr));
+			udpaddr.sin_family = AF_INET;
+			int sourceFD = findUserFD(list[i]);
+			udpaddr.sin_port = fdToCliaddr[sourceFD].sin_port;
+			udpaddr.sin_addr = fdToCliaddr[sourceFD].sin_addr;
+			udpfd = socket(AF_INET, SOCK_DGRAM, 0);
+			char sendline[MAX] = {0};
+			struct sockaddr_in &sin = fdToCliaddr[targetFD];
+			int last = (i == ownerNum - 1) ? 1 : 0;
+			if (i == ownerNum - 1) sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, packetNum, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
+			else sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, (i + 1) * offset, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
+			sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
+			close(udpfd);
+		}
+		int udpfd;
+		struct sockaddr_in udpaddr;
+		socklen_t len;
+		len = sizeof(udpaddr);
+		bzero(&udpaddr, sizeof(udpaddr));
+		udpaddr.sin_family = AF_INET;
+		udpaddr.sin_port = fdToCliaddr[targetFD].sin_port;
+		udpaddr.sin_addr = fdToCliaddr[targetFD].sin_addr;
+		udpfd = socket(AF_INET, SOCK_DGRAM, 0);
+		char sendline[MAX] = {0};
+		sprintf(sendline, "download %s %d\n", filename, filesize);
+		sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
+		close(udpfd);
+	}
+	pthread_mutex_unlock(&mutex);
+}
+
 void initialDownload(int sockfd, char *filename) {
 	pthread_mutex_lock(&mutex);
 	std::string fileName = filename;
@@ -289,7 +343,9 @@ void *run(void *arg) {
 			sscanf(recv, "%*s%s", filename);
 			stopDownload(connfd, filename);
 		} else if (!strcmp("UF", command)) {
-			
+			char filename[100] = {0}, usertosend[100] = {0};
+			sscanf(recv, "%*s%s%s", filename, usertosend);
+			initialUpload(connfd, filename, usertosend);
 		}
 		bzero(recv, sizeof(recv));
 	}
