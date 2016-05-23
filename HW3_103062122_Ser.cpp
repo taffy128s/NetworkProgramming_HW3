@@ -35,6 +35,30 @@ inline int findUserFD(std::string userName) {
 	return INT_MAX;
 }
 
+void stopDownload(int sockfd, char *filename) {
+	pthread_mutex_lock(&mutex);
+	std::string fileName = filename;
+	std::vector<std::string> &list = fileUserList[fileName];
+	int ownerNum = fileUserList[fileName].size();
+	for (int i = 0; i < ownerNum; i++) {
+		int udpfd;
+		struct sockaddr_in udpaddr;
+		socklen_t len;
+		len = sizeof(udpaddr);
+		bzero(&udpaddr, sizeof(udpaddr));
+		udpaddr.sin_family = AF_INET;
+		int sourceFD = findUserFD(list[i]);
+		udpaddr.sin_port = fdToCliaddr[sourceFD].sin_port;
+		udpaddr.sin_addr = fdToCliaddr[sourceFD].sin_addr;
+		udpfd = socket(AF_INET, SOCK_DGRAM, 0);
+		char sendline[MAX] = {0};
+		sprintf(sendline, "stop\n");
+		sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
+		close(udpfd);
+	}
+	pthread_mutex_unlock(&mutex);
+}
+
 void initialDownload(int sockfd, char *filename) {
 	pthread_mutex_lock(&mutex);
 	std::string fileName = filename;
@@ -260,6 +284,12 @@ void *run(void *arg) {
 			char filename[100] = {0};
 			sscanf(recv, "%*s%s", filename);
 			initialDownload(connfd, filename);
+		} else if (!strcmp("stop", command)) {
+			char filename[100] = {0};
+			sscanf(recv, "%*s%s", filename);
+			stopDownload(connfd, filename);
+		} else if (!strcmp("UF", command)) {
+			
 		}
 		bzero(recv, sizeof(recv));
 	}

@@ -16,13 +16,51 @@
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-int *ACKarr, numOfAck, ackLeftBound, status;
+int *ACKarr, numOfAck, ackLeftBound, status, globalfd, mypause, nowpacket;
 
 inline int chkAllReceived(int *receivedpacket, int packetnum) {
 	int allone = 1;
-	for (int i = 0; i < packetnum; i++)
+	nowpacket = 0;
+	for (int i = 0; i < packetnum; i++) {
+		if (receivedpacket[i]) nowpacket++;
 		allone &= receivedpacket[i];
+	}
 	return allone;
+}
+
+void sendStopMesg(char *filename) {
+	char sendline[MAX] = {0};
+	sprintf(sendline, "stop %s\n", filename);
+	write(globalfd, sendline, strlen(sendline));
+}
+
+void sendFileList(int sockfd) {
+	char sendline[MAX] = {0};
+	sprintf(sendline, "FileList ");
+	DIR *dp;
+	struct dirent *ep;
+	dp = opendir("./file/");
+	if (dp != NULL) {
+		while ((ep = readdir(dp))) {
+			if (!strcmp(".", ep->d_name) || !strcmp("..", ep->d_name)) continue;
+			strcat(sendline, " ");
+			strcat(sendline, ep->d_name);
+			FILE *pfile;
+			int fileSize;
+			char path[50] = {0};
+			sprintf(path, "./file/");
+			strcat(path, ep->d_name);
+			pfile = fopen(path, "rb");
+			fseek(pfile, 0, SEEK_END);
+			fileSize = ftell(pfile);
+			fclose(pfile);
+			char stringfilesize[50] = {0};
+			sprintf(stringfilesize, " %d", fileSize);
+			strcat(sendline, stringfilesize);
+		}
+	}
+	write(sockfd, sendline, strlen(sendline));
+	puts("File list sent.");
 }
 
 void *checkACK(void *arg) {
@@ -40,6 +78,13 @@ void *checkACK(void *arg) {
 		bzero(&udpaddr, sizeof(udpaddr));
 		socklen_t len = sizeof(udpaddr);
 		recvfrom(udpfd, recv, MAX, 0, (struct sockaddr *) &udpaddr, &len);
+		char com[100] = {0};
+		sscanf(recv, "%s", com);
+		if (!strcmp("stop", com)) {
+			status = 1;
+			puts("User stop the transmission.");
+			return NULL;
+		}
 		puts(recv);
 		int idx;
 		sscanf(recv, "%*s%d", &idx);
@@ -81,6 +126,13 @@ void *run(void *udpfd_in) {
 			bzero(filedata, sizeof(char) * packetnum * 512);
 			bzero(receivedpacket, sizeof(int) * packetnum);
 			while (!chkAllReceived(receivedpacket, packetnum)) {
+				if (mypause == 1) {
+					usleep(10);
+					continue;
+				} else if (mypause == 2) {
+					sendStopMesg(filename);
+					break;
+				}
 				recvfrom(udpfd, recv, MAX, 0, (struct sockaddr *) &incomeudpaddr, &len);
 				int idx;
 				sscanf(recv, "%d", &idx);
@@ -94,12 +146,15 @@ void *run(void *udpfd_in) {
 				sprintf(sendline, "ACK %d\n", idx);
 				sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &incomeudpaddr, len);
 				bzero(recv, sizeof(recv));
+				printf("Download %d %%.\n", nowpacket * 100 / packetnum);
 			}
 			fwrite(filedata, sizeof(char), filesize, fp);
 			fclose(fp);
-			delete receivedpacket;
-			delete filedata;
-			printf("%s downloaded successfully.\n", filename);
+			if (mypause == 2) remove(path);
+			sendFileList(globalfd);
+			delete[] receivedpacket;
+			delete[] filedata;
+			if (mypause == 0) printf("%s downloaded successfully.\n", filename);
 		} else if (!strcmp("upload", command)) {
 			// TODO: upload file slices to a specific client.
 			printf("%s", recv);
@@ -117,9 +172,8 @@ void *run(void *udpfd_in) {
 			targetAddr.sin_family = AF_INET;
 			targetAddr.sin_port = htons(port);
 			inet_pton(AF_INET, targetIP, &targetAddr.sin_addr);
-			int targetFD = socket(AF_INET, SOCK_DGRAM, 0);
 			pthread_t tid;
-			pthread_create(&tid, NULL, &checkACK, &targetFD);
+			pthread_create(&tid, NULL, &checkACK, &udpfd);
 			while (1) {
 				if (status == 0) {
 					char path[100] = {0};
@@ -151,13 +205,13 @@ void *run(void *udpfd_in) {
 								sendline[11 + j] = c;
 								j++;
 							}
-							sendto(targetFD, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
+							sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
 						} else {
 							char sendline[MAX] = {0};
 							sprintf(sendline, "%10d ", i);
 							for (int j = 0; j < 512; j++)
 								sendline[11 + j] = fgetc(fp);
-							sendto(targetFD, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
+							sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
 						}
 						usleep(10);
 					}
@@ -166,8 +220,11 @@ void *run(void *udpfd_in) {
 					break;
 				}
 			}
-			delete ACKarr;
-		} else printf("    %s", recv);
+			delete[] ACKarr;
+		} else if (!strcmp("chat", command)) {
+			char *place = recv + 5;
+			printf("    %s", place);
+		}
 		bzero(recv, sizeof(recv));
 		bzero(command, sizeof(command));
 	}
@@ -197,44 +254,15 @@ void chat(char *myusername, char *targetuserIP, int targetuserport) {
 	inet_pton(AF_INET, targetuserIP, &servaddr.sin_addr);
 	sockfd = socket(AF_INET, SOCK_DGRAM, 0);
 	char sendline[MAX] = {0}, buffer[MAX] = {0};
-	sprintf(sendline, "%s: ", myusername);
+	sprintf(sendline, "chat %s: ", myusername);
 	while ((fgets(buffer, MAX, stdin) != NULL)) {
 		strcat(sendline, buffer);
 		sendto(sockfd, sendline, strlen(sendline), 0, (struct sockaddr *) &servaddr, len);
 		bzero(buffer, sizeof(buffer));
 		bzero(sendline, sizeof(sendline));
-		sprintf(sendline, "%s : ", myusername);
+		sprintf(sendline, "chat %s: ", myusername);
 	}
 	close(sockfd);
-}
-
-void sendFileList(int sockfd) {
-	char sendline[MAX] = {0};
-	sprintf(sendline, "FileList ");
-	DIR *dp;
-	struct dirent *ep;
-	dp = opendir("./file/");
-	if (dp != NULL) {
-		while ((ep = readdir(dp))) {
-			if (!strcmp(".", ep->d_name) || !strcmp("..", ep->d_name)) continue;
-			strcat(sendline, " ");
-			strcat(sendline, ep->d_name);
-			FILE *pfile;
-			int fileSize;
-			char path[50] = {0};
-			sprintf(path, "./file/");
-			strcat(path, ep->d_name);
-			pfile = fopen(path, "rb");
-			fseek(pfile, 0, SEEK_END);
-			fileSize = ftell(pfile);
-			fclose(pfile);
-			char stringfilesize[50] = {0};
-			sprintf(stringfilesize, " %d", fileSize);
-			strcat(sendline, stringfilesize);
-		}
-	}
-	write(sockfd, sendline, strlen(sendline));
-	puts("File list sent.");
 }
 
 int main(int argc, char **argv) {
@@ -252,6 +280,7 @@ int main(int argc, char **argv) {
 	pthread_t tid;
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
+	globalfd = sockfd;
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(atoi(argv[2]));
@@ -364,6 +393,23 @@ int main(int argc, char **argv) {
 			if (!strcmp("ok", rep)) {
 				puts("File is sending.");
 			} else puts("File not found.");
+			puts("[P]ause [C]ontinue [E]xit");
+			char com[100];
+			mypause = 0;
+			while (1) {
+				bzero(com, sizeof(com));
+				fgets(com, 100, stdin);
+				if (!strcmp("P\n", com)) {
+					mypause = 1;
+				} else if (!strcmp("C\n", com)) {
+					mypause = 0;
+				} else if (!strcmp("E\n", com)) {
+					mypause = 2;
+					break;
+				}
+			}
+		} else if (!strcmp("UF\n", sendline)) {
+			
 		}
 	}
 
