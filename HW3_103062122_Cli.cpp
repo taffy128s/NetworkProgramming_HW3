@@ -18,6 +18,18 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int *ACKarr, numOfAck, ackLeftBound, status, globalfd, mypause, nowpacket;
 
+void showMenu() {
+	puts("--------------------");
+	puts("[T]alk");
+	puts("[L]ogout");
+	puts("[D]elete account");
+	puts("[SU]Show User");
+	puts("[SF]Show File");
+	puts("[DF]Download File");
+	puts("[UF]Upload File");
+	puts("--------------------");
+}
+
 inline int chkAllReceived(int *receivedpacket, int packetnum) {
 	int allone = 1;
 	nowpacket = 0;
@@ -71,6 +83,7 @@ void *checkACK(void *arg) {
 		if (counter == numOfAck) {
 			status = 1;
 			puts("All of the ACKs have been received.");
+			showMenu();
 			return NULL;
 		}
 		char recv[MAX] = {0};
@@ -83,6 +96,7 @@ void *checkACK(void *arg) {
 		if (!strcmp("stop", com)) {
 			status = 1;
 			puts("User stop the transmission.");
+			showMenu();
 			return NULL;
 		}
 		puts(recv);
@@ -146,7 +160,9 @@ void *run(void *udpfd_in) {
 				sprintf(sendline, "ACK %d\n", idx);
 				sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &incomeudpaddr, len);
 				bzero(recv, sizeof(recv));
-				printf("Download %d %%.\n", nowpacket * 100 / packetnum);
+				printf("\rDownload %d %%.\n", nowpacket * 100 / packetnum);
+				puts("[P]ause [C]ontinue [E]xit");
+				fflush(stdout);
 			}
 			fwrite(filedata, sizeof(char), filesize, fp);
 			fclose(fp);
@@ -229,18 +245,6 @@ void *run(void *udpfd_in) {
 		bzero(command, sizeof(command));
 	}
 	return NULL;
-}
-
-void showMenu() {
-	puts("--------------------");
-	puts("[T]alk");
-	puts("[L]ogout");
-	puts("[D]elete account");
-	puts("[SU]Show User");
-	puts("[SF]Show File");
-	puts("[DF]Download File");
-	puts("[UF]Upload File");
-	puts("--------------------");
 }
 
 void chat(char *myusername, char *targetuserIP, int targetuserport) {
@@ -393,7 +397,6 @@ int main(int argc, char **argv) {
 			if (!strcmp("ok", rep)) {
 				puts("File is sending.");
 			} else puts("File not found.");
-			puts("[P]ause [C]ontinue [E]xit");
 			char com[100];
 			mypause = 0;
 			while (1) {
