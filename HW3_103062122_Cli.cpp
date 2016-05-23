@@ -14,6 +14,8 @@
 #include <sstream>
 #define MAX 2048
 
+pthread_mutex_t usertalk_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 int *ACKarr, numOfAck, ackLeftBound, status;
 char usertalk[100];
 
@@ -60,6 +62,7 @@ void *run(void *udpfd_in) {
 		len = sizeof(incomeudpaddr);
 		recvfrom(udpfd, recv, MAX, 0, (struct sockaddr *) &incomeudpaddr, &len);
 		sscanf(recv, "%s", command);
+		pthread_mutex_lock(&usertalk_mutex);
 		if (!strcmp("download", command)) {
 			// TODO: download files from muitiple clients.
 			printf("%s", recv);
@@ -149,7 +152,10 @@ void *run(void *udpfd_in) {
 					break;
 				}
 			}
-		} else if (!strcmp(usertalk, command)) printf("    %s", recv);
+		} else {
+			if (!strcmp(usertalk, command)) printf("    %s", recv);
+		}
+		pthread_mutex_unlock(&usertalk_mutex);
 		bzero(recv, sizeof(recv));
 		bzero(command, sizeof(command));
 	}
@@ -328,8 +334,10 @@ int main(int argc, char **argv) {
 		} else if (!strcmp("T\n", sendline)) {
 			puts("Who do you want to talk to?");
 			fgets(command, MAX, stdin);
+			pthread_mutex_lock(&usertalk_mutex);
 			bzero(usertalk, sizeof(usertalk));
 			sscanf(command, "%s", usertalk);
+			pthread_mutex_unlock(&usertalk_mutex);
 			strcat(sendline, command);
 			write(sockfd, sendline, strlen(sendline));
 			read(sockfd, recv, MAX);
