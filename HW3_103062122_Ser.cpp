@@ -17,14 +17,7 @@
 #include <set>
 #define MAX 2048
 
-pthread_mutex_t userAndPassword_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t onlineUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t fdToUsername_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t userFileList_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t fileUserList_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t fileSet_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t fdToCliaddr_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t fileSizeMap_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 std::set<std::string> fileSet;
 std::map<std::string, int> fileSizeMap;
@@ -35,28 +28,6 @@ std::vector<std::string> onlineUserList;
 std::string fdToUsername[FD_SETSIZE];
 struct sockaddr_in fdToCliaddr[FD_SETSIZE];
 
-inline void lockUserInf() {
-	pthread_mutex_lock(&userAndPassword_mutex);
-	pthread_mutex_lock(&onlineUserList_mutex);
-	pthread_mutex_lock(&fdToUsername_mutex);
-	pthread_mutex_lock(&userFileList_mutex);
-	pthread_mutex_lock(&fileUserList_mutex);
-	pthread_mutex_lock(&fileSet_mutex);
-	pthread_mutex_lock(&fdToCliaddr_mutex);
-	pthread_mutex_lock(&fileSizeMap_mutex);
-}
-
-inline void unlockUserInf() {
-	pthread_mutex_unlock(&userAndPassword_mutex);
-	pthread_mutex_unlock(&onlineUserList_mutex);
-	pthread_mutex_unlock(&fdToUsername_mutex);
-	pthread_mutex_unlock(&userFileList_mutex);
-	pthread_mutex_unlock(&fileUserList_mutex);
-	pthread_mutex_unlock(&fileSet_mutex);
-	pthread_mutex_unlock(&fdToCliaddr_mutex);
-	pthread_mutex_unlock(&fileSizeMap_mutex);
-}
-
 inline int findUserFD(std::string userName) {
 	for (int i = 0; i < FD_SETSIZE; i++) {
 		if (fdToUsername[i] == userName) return i;
@@ -65,7 +36,7 @@ inline int findUserFD(std::string userName) {
 }
 
 void initialDownload(int sockfd, char *filename) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	std::string fileName = filename;
 	char sendline[MAX] = {0};
 	if (fileSet.find(fileName) == fileSet.end()) {
@@ -113,11 +84,11 @@ void initialDownload(int sockfd, char *filename) {
 		sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
 		close(udpfd);
 	}
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void sendUserIPPort(int sockfd, char *username) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	std::string targetUser = username;
 	int targetFD = findUserFD(targetUser);
 	struct sockaddr_in sin = fdToCliaddr[targetFD];
@@ -128,11 +99,11 @@ void sendUserIPPort(int sockfd, char *username) {
 	strcat(sendline, inet_ntoa(sin.sin_addr));
 	strcat(sendline, port);
 	write(sockfd, sendline, strlen(sendline));
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void sendFileList(int sockfd) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	char sendline[MAX] = {0};
 	sprintf(sendline, "Files on server are:");
 	for (auto file : fileSet) {
@@ -141,11 +112,11 @@ void sendFileList(int sockfd) {
 	}
 	strcat(sendline, "\n");
 	write(sockfd, sendline, strlen(sendline));
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void sendUserList(int sockfd) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	char sendline[MAX] = {0};
 	sprintf(sendline, "Online users are:");
 	for (auto user : onlineUserList) {
@@ -154,11 +125,11 @@ void sendUserList(int sockfd) {
 	}
 	strcat(sendline, "\n");
 	write(sockfd, sendline, strlen(sendline));
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void mergeFileList() {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	fileSet.clear();
 	fileUserList.clear();
 	for (auto user : onlineUserList) {
@@ -167,11 +138,11 @@ void mergeFileList() {
 			fileUserList[file].push_back(user);
 		}
 	}
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void readFileList(int sockfd, char *input) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	std::string userName = fdToUsername[sockfd];
 	userFileList[userName].clear();
 	char *token = strtok(input, " ");
@@ -190,11 +161,11 @@ void readFileList(int sockfd, char *input) {
 		printf("%s, size: %d\n", userFileList[userName][i].data(), fileSizeMap[userFileList[userName][i]]);
 	}
 	puts("---------------");
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 inline void removeOnlineStatus(int sockfd) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	if (fdToUsername[sockfd] == "") printf("User unknown logged out.\n");
 	else printf("User %s logged out.\n", fdToUsername[sockfd].data());
 	unsigned idxToDelete;
@@ -204,22 +175,22 @@ inline void removeOnlineStatus(int sockfd) {
 			break;
 		}
 	fdToUsername[sockfd] = "";
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void deleteAccount(int sockfd) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	char sendline[MAX] = {0};
 	std::string userName = fdToUsername[sockfd];
 	userAndPassword[userName] = "";
 	puts("A user just deleted his/her account.");
 	sprintf(sendline, "User %s is deleted, logged out.\n", userName.data());
 	write(sockfd, sendline, strlen(sendline));
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void registerAccount(int sockfd, char *username, char *password) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	char sendline[MAX] = {0};
 	std::string userName = username;
 	std::string passWord = password;
@@ -234,11 +205,11 @@ void registerAccount(int sockfd, char *username, char *password) {
 		sprintf(sendline, "no");
 		write(sockfd, sendline, strlen(sendline));
 	}
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void loginAccount(int sockfd, char *username, char *password) {
-	lockUserInf();
+	pthread_mutex_lock(&mutex);
 	char sendline[MAX] = {0};
 	std::string userName = username;
 	std::string passWord = password;
@@ -253,7 +224,7 @@ void loginAccount(int sockfd, char *username, char *password) {
 		sprintf(sendline, "ok");
 		write(sockfd, sendline, strlen(sendline));
 	}
-	unlockUserInf();
+	pthread_mutex_unlock(&mutex);
 }
 
 void *run(void *arg) {
@@ -329,9 +300,9 @@ int main(int argc, char **argv) {
 	while (1) {
 		clilen = sizeof(cliaddr);
 		connfd = accept(listenfd, (struct sockaddr *) &cliaddr, &clilen);
-		lockUserInf();
+		pthread_mutex_lock(&mutex);
 		fdToCliaddr[connfd] = cliaddr;
-		unlockUserInf();
+		pthread_mutex_unlock(&mutex);
 		printf("Connection from: %s, port: %d.\n", inet_ntoa(cliaddr.sin_addr), ntohs(cliaddr.sin_port));
 		pthread_create(&tid, NULL, &run, (void *) &connfd);
 	}

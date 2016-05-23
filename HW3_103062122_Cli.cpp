@@ -14,10 +14,9 @@
 #include <sstream>
 #define MAX 2048
 
-pthread_mutex_t usertalk_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int *ACKarr, numOfAck, ackLeftBound, status;
-char usertalk[100];
 
 inline int chkAllReceived(int *receivedpacket, int packetnum) {
 	int allone = 1;
@@ -44,10 +43,12 @@ void *checkACK(void *arg) {
 		puts(recv);
 		int idx;
 		sscanf(recv, "%*s%d", &idx);
+		pthread_mutex_lock(&mutex);
 		if (ACKarr[idx - ackLeftBound] != 1) {
 			ACKarr[idx - ackLeftBound] = 1;
 			counter++;
 		}
+		pthread_mutex_unlock(&mutex);
 	}
 }
 
@@ -62,7 +63,6 @@ void *run(void *udpfd_in) {
 		len = sizeof(incomeudpaddr);
 		recvfrom(udpfd, recv, MAX, 0, (struct sockaddr *) &incomeudpaddr, &len);
 		sscanf(recv, "%s", command);
-		pthread_mutex_lock(&usertalk_mutex);
 		if (!strcmp("download", command)) {
 			// TODO: download files from muitiple clients.
 			printf("%s", recv);
@@ -97,6 +97,8 @@ void *run(void *udpfd_in) {
 			}
 			fwrite(filedata, sizeof(char), filesize, fp);
 			fclose(fp);
+			delete receivedpacket;
+			delete filedata;
 			printf("%s downloaded successfully.\n", filename);
 		} else if (!strcmp("upload", command)) {
 			// TODO: upload file slices to a specific client.
@@ -128,6 +130,18 @@ void *run(void *udpfd_in) {
 					for (int i = 0; i < left * 512; i++)
 						fgetc(fp);
 					for (int i = left; i < right; i++) {
+						pthread_mutex_lock(&mutex);
+						if (ACKarr[i - left] == 1) {
+							if (i == right - 1 && last == 1) {
+								pthread_mutex_unlock(&mutex);
+								continue;
+							} else {
+								for (int j = 0; j < 512; j++)
+									fgetc(fp);
+								pthread_mutex_unlock(&mutex);
+								continue;
+							}
+						} else pthread_mutex_unlock(&mutex);
 						if (i == right - 1 && last == 1) {
 							char sendline[MAX] = {0};
 							sprintf(sendline, "%10d ", i);
@@ -152,10 +166,8 @@ void *run(void *udpfd_in) {
 					break;
 				}
 			}
-		} else {
-			if (!strcmp(usertalk, command)) printf("    %s", recv);
-		}
-		pthread_mutex_unlock(&usertalk_mutex);
+			delete ACKarr;
+		} else printf("    %s", recv);
 		bzero(recv, sizeof(recv));
 		bzero(command, sizeof(command));
 	}
@@ -334,10 +346,6 @@ int main(int argc, char **argv) {
 		} else if (!strcmp("T\n", sendline)) {
 			puts("Who do you want to talk to?");
 			fgets(command, MAX, stdin);
-			pthread_mutex_lock(&usertalk_mutex);
-			bzero(usertalk, sizeof(usertalk));
-			sscanf(command, "%s", usertalk);
-			pthread_mutex_unlock(&usertalk_mutex);
 			strcat(sendline, command);
 			write(sockfd, sendline, strlen(sendline));
 			read(sockfd, recv, MAX);
