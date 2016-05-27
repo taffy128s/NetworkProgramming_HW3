@@ -14,9 +14,13 @@
 #include <sstream>
 #define MAX 2048
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+int tcpfd;
 
-int *ACKarr, numOfAck, ackLeftBound, status, globalfd, mypause, nowpacket;
+struct upload_info {
+	char filename[100], targetIP[100];
+	int left, right, last, port, udpfd, status;
+	int *ACKarr;
+};
 
 void showMenu() {
 	puts("--------------------");
@@ -28,22 +32,6 @@ void showMenu() {
 	puts("[DF]Download File");
 	puts("[UF]Upload File");
 	puts("--------------------");
-}
-
-inline int chkAllReceived(int *receivedpacket, int packetnum) {
-	int allone = 1;
-	nowpacket = 0;
-	for (int i = 0; i < packetnum; i++) {
-		if (receivedpacket[i]) nowpacket++;
-		allone &= receivedpacket[i];
-	}
-	return allone;
-}
-
-void sendStopMesg(char *filename) {
-	char sendline[MAX] = {0};
-	sprintf(sendline, "stop %s\n", filename);
-	write(globalfd, sendline, strlen(sendline));
 }
 
 void sendFileList(int sockfd) {
@@ -75,13 +63,26 @@ void sendFileList(int sockfd) {
 	puts("File list sent.");
 }
 
+inline int chkAllReceived(int *receivedpacket, int packetnum, int *nowpacket) {
+	int allone = 1;
+	(*nowpacket) = 0;
+	for (int i = 0; i < packetnum; i++) {
+		if (receivedpacket[i]) (*nowpacket)++;
+		allone &= receivedpacket[i];
+	}
+	return allone;
+}
+
 void *checkACK(void *arg) {
+	// Get the info from the parent thread.
+	struct upload_info *info = (struct upload_info *) arg;
+	int counter = 0, numOfAck = info->right - info->left;
+	// Detach this thread.
 	pthread_detach(pthread_self());
-	int udpfd = *((int *) arg);
-	int counter = 0;
+	// Start to receive the ACKs.
 	while (1) {
 		if (counter == numOfAck) {
-			status = 1;
+			info->status = 1;
 			puts("All of the ACKs have been received.");
 			showMenu();
 			return NULL;
@@ -90,30 +91,81 @@ void *checkACK(void *arg) {
 		struct sockaddr_in udpaddr;
 		bzero(&udpaddr, sizeof(udpaddr));
 		socklen_t len = sizeof(udpaddr);
-		recvfrom(udpfd, recv, MAX, 0, (struct sockaddr *) &udpaddr, &len);
-		char com[100] = {0};
-		sscanf(recv, "%s", com);
-		if (!strcmp("stop", com)) {
-			status = 1;
-			puts("User stop the transmission.");
-			showMenu();
-			return NULL;
-		}
+		recvfrom(info->udpfd, recv, MAX, 0, (struct sockaddr *) &udpaddr, &len);
 		puts(recv);
 		int idx;
 		sscanf(recv, "%*s%d", &idx);
-		pthread_mutex_lock(&mutex);
-		if (ACKarr[idx - ackLeftBound] != 1) {
-			ACKarr[idx - ackLeftBound] = 1;
+		if (info->ACKarr[idx - info->left] != 1) {
+			info->ACKarr[idx - info->left] = 1;
 			counter++;
 		}
-		pthread_mutex_unlock(&mutex);
 	}
+}
+
+void *upload(void *data_in) {
+	// Get the data from the parent thread.
+	struct upload_info info = *((struct upload_info *) data_in);
+	// Struct the target addr.
+	struct sockaddr_in targetAddr;
+	bzero(&targetAddr, sizeof(targetAddr));
+	targetAddr.sin_family = AF_INET;
+	targetAddr.sin_port = htons(info.port);
+	inet_pton(AF_INET, info.targetIP, &targetAddr.sin_addr);
+	socklen_t len = sizeof(targetAddr);
+	// Get a new udp port.
+	info.udpfd = socket(AF_INET, SOCK_DGRAM, 0);
+	// New the ACK array.
+	int numOfAck = info.right - info.left;
+	info.ACKarr = new int[numOfAck];
+	bzero(info.ACKarr, sizeof(int) * numOfAck);
+	// Create a new thread to receive the ACKs.
+	pthread_t tid;
+	pthread_create(&tid, NULL, &checkACK, &info);
+	// Start to send file.
+	while (1) {
+		if (info.status == 0) {
+			char path[100] = {0};
+			sprintf(path, "./file/");
+			strcat(path, info.filename);
+			FILE *fp = fopen(path, "rb");
+			rewind(fp);
+			for (int i = 0; i < info.left * 512; i++)
+				fgetc(fp);
+			for (int i = info.left; i < info.right; i++) {
+				if (info.ACKarr[i - info.left] == 1) {
+					if (i != info.right - 1 || info.last != 1) {
+						for (int j = 0; j < 512; j++) fgetc(fp);
+						continue;
+					}
+				}
+				if (i == info.right - 1 && info.last == 1) {
+					char sendline[MAX] = {0}, c;
+					sprintf(sendline, "%10d ", i);
+					int j = 0;
+					while ((c = fgetc(fp)) != EOF) {
+						sendline[11 + j] = c;
+						j++;
+					}
+					sendto(info.udpfd, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
+				} else {
+					char sendline[MAX] = {0};
+					sprintf(sendline, "%10d ", i);
+					for (int j = 0; j < 512; j++)
+						sendline[11 + j] = fgetc(fp);
+					sendto(info.udpfd, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
+				}
+			}
+			fclose(fp);
+		} else if (info.status == 1) break;
+	}
+	delete[] info.ACKarr;
+	return NULL;
 }
 
 void *run(void *udpfd_in) {
 	int udpfd = *((int *) udpfd_in);
 	char recv[MAX] = {0}, command[MAX] = {0};
+	struct upload_info info;
 	struct sockaddr_in incomeudpaddr;
 	bzero(&incomeudpaddr, sizeof(incomeudpaddr));
 	socklen_t len;
@@ -123,7 +175,6 @@ void *run(void *udpfd_in) {
 		recvfrom(udpfd, recv, MAX, 0, (struct sockaddr *) &incomeudpaddr, &len);
 		sscanf(recv, "%s", command);
 		if (!strcmp("download", command)) {
-			// TODO: download files from muitiple clients.
 			printf("%s", recv);
 			char filename[MAX] = {0};
 			int filesize, packetnum;
@@ -135,18 +186,12 @@ void *run(void *udpfd_in) {
 			sprintf(path, "./file/");
 			strcat(path, filename);
 			fp = fopen(path, "wb");
+			int nowpacket = 0;
 			int *receivedpacket = new int[packetnum];
 			char *filedata = new char[packetnum * 512];
 			bzero(filedata, sizeof(char) * packetnum * 512);
 			bzero(receivedpacket, sizeof(int) * packetnum);
-			while (!chkAllReceived(receivedpacket, packetnum)) {
-				if (mypause == 1) {
-					usleep(10);
-					continue;
-				} else if (mypause == 2) {
-					sendStopMesg(filename);
-					break;
-				}
+			while (!chkAllReceived(receivedpacket, packetnum, &nowpacket)) {
 				recvfrom(udpfd, recv, MAX, 0, (struct sockaddr *) &incomeudpaddr, &len);
 				int idx;
 				sscanf(recv, "%d", &idx);
@@ -161,82 +206,22 @@ void *run(void *udpfd_in) {
 				sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &incomeudpaddr, len);
 				bzero(recv, sizeof(recv));
 				printf("\rDownload %d %%.\n", nowpacket * 100 / packetnum);
-				puts("[P]ause [C]ontinue [E]xit (only for downloading command)");
+				puts("[P]ause [C]ontinue [E]xit");
 				fflush(stdout);
 			}
 			fwrite(filedata, sizeof(char), filesize, fp);
 			fclose(fp);
-			if (mypause == 2) remove(path);
-			sendFileList(globalfd);
+			/*if (mypause == 2) remove(path);*/
+			sendFileList(tcpfd);
 			delete[] receivedpacket;
 			delete[] filedata;
-			if (mypause == 0) printf("%s downloaded successfully.\n", filename);
+			/*if (mypause == 0) */printf("%s downloaded successfully.\n", filename);
 		} else if (!strcmp("upload", command)) {
-			// TODO: upload file slices to a specific client.
 			printf("%s", recv);
-			char filename[MAX] = {0};
-			int left, right, port, last;
-			char targetIP[100] = {0};
-			sscanf(recv, "%*s%s%d%d%s%d%d", filename, &left, &right, targetIP, &port, &last);
-			status = 0; // 4
-			numOfAck = right - left; // 3
-			ackLeftBound = left; // 2
-			ACKarr = new int[numOfAck]; // 1
-			bzero(ACKarr, sizeof(int) * numOfAck);
-			struct sockaddr_in targetAddr;
-			bzero(&targetAddr, sizeof(targetAddr));
-			targetAddr.sin_family = AF_INET;
-			targetAddr.sin_port = htons(port);
-			inet_pton(AF_INET, targetIP, &targetAddr.sin_addr);
 			pthread_t tid;
-			pthread_create(&tid, NULL, &checkACK, &udpfd);
-			while (1) {
-				if (status == 0) {
-					char path[100] = {0};
-					sprintf(path, "./file/");
-					strcat(path, filename);
-					FILE *fp = fopen(path, "rb");
-					rewind(fp);
-					for (int i = 0; i < left * 512; i++)
-						fgetc(fp);
-					for (int i = left; i < right; i++) {
-						pthread_mutex_lock(&mutex);
-						if (ACKarr[i - left] == 1) {
-							if (i == right - 1 && last == 1) {
-								pthread_mutex_unlock(&mutex);
-								continue;
-							} else {
-								for (int j = 0; j < 512; j++)
-									fgetc(fp);
-								pthread_mutex_unlock(&mutex);
-								continue;
-							}
-						} else pthread_mutex_unlock(&mutex);
-						if (i == right - 1 && last == 1) {
-							char sendline[MAX] = {0};
-							sprintf(sendline, "%10d ", i);
-							int j = 0;
-							char c;
-							while ((c = fgetc(fp)) != EOF) {
-								sendline[11 + j] = c;
-								j++;
-							}
-							sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
-						} else {
-							char sendline[MAX] = {0};
-							sprintf(sendline, "%10d ", i);
-							for (int j = 0; j < 512; j++)
-								sendline[11 + j] = fgetc(fp);
-							sendto(udpfd, sendline, MAX, 0, (struct sockaddr *) &targetAddr, len);
-						}
-						usleep(10);
-					}
-					fclose(fp);
-				} else if (status == 1) {
-					break;
-				}
-			}
-			delete[] ACKarr;
+			bzero(&info, sizeof(info));
+			sscanf(recv, "%*s%s%d%d%s%d%d", info.filename, &info.left, &info.right, info.targetIP, &info.port, &info.last);
+			pthread_create(&tid, NULL, &upload, &info);
 		} else if (!strcmp("chat", command)) {
 			char *place = recv + 5;
 			printf("    %s", place);
@@ -284,7 +269,7 @@ int main(int argc, char **argv) {
 	pthread_t tid;
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	globalfd = sockfd;
+	tcpfd = sockfd;
 	bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(atoi(argv[2]));
@@ -394,23 +379,8 @@ int main(int argc, char **argv) {
 			read(sockfd, recv, MAX);
 			char rep[100] = {0};
 			sscanf(recv, "%s", rep);
-			if (!strcmp("ok", rep)) {
-				puts("File is sending.");
-				char com[100];
-				mypause = 0;
-				while (1) {
-					bzero(com, sizeof(com));
-					fgets(com, 100, stdin);
-					if (!strcmp("P\n", com)) {
-						mypause = 1;
-					} else if (!strcmp("C\n", com)) {
-						mypause = 0;
-					} else if (!strcmp("E\n", com)) {
-						mypause = 2;
-						break;
-					}
-				}
-			} else puts("File not found.");
+			if (!strcmp("ok", rep)) puts("File is sending.");
+			else puts("File not found.");
 		} else if (!strcmp("UF\n", sendline)) {
 			puts("What do you want to upload?");
 			fgets(command, MAX, stdin);
