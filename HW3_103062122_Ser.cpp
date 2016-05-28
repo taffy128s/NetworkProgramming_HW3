@@ -11,10 +11,9 @@
 #include <netinet/in.h>
 #include <iostream>
 #include <string>
-#include <sstream>
 #include <map>
-#include <vector>
 #include <set>
+#include <vector>
 #define MAX 2048
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -35,94 +34,14 @@ inline int findUserFD(std::string userName) {
 	return INT_MAX;
 }
 
-void stopDownload(int sockfd, char *filename) {
-	pthread_mutex_lock(&mutex);
-	std::string fileName = filename;
-	std::vector<std::string> &list = fileUserList[fileName];
-	int ownerNum = fileUserList[fileName].size();
-	for (int i = 0; i < ownerNum; i++) {
-		int udpfd;
-		struct sockaddr_in udpaddr;
-		socklen_t len;
-		len = sizeof(udpaddr);
-		bzero(&udpaddr, sizeof(udpaddr));
-		udpaddr.sin_family = AF_INET;
-		int sourceFD = findUserFD(list[i]);
-		udpaddr.sin_port = fdToCliaddr[sourceFD].sin_port;
-		udpaddr.sin_addr = fdToCliaddr[sourceFD].sin_addr;
-		udpfd = socket(AF_INET, SOCK_DGRAM, 0);
-		char sendline[MAX] = {0};
-		sprintf(sendline, "stop\n");
-		sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
-		close(udpfd);
-	}
-	pthread_mutex_unlock(&mutex);
-}
-
-void initialUpload(int sockfd, char *filename, char *usertosend) {
-	pthread_mutex_lock(&mutex);
-	std::string fileName = filename;
-	std::string userToSend = usertosend;
-	int targetFD = findUserFD(userToSend);
-	char sendline[MAX] = {0};
-	if (fileSet.find(fileName) == fileSet.end()) {
-		sprintf(sendline, "no");
-		write(sockfd, sendline, strlen(sendline));
-	} else {
-		sprintf(sendline, "ok");
-		write(sockfd, sendline, strlen(sendline));
-		int filesize = fileSizeMap[fileName];
-		int ownerNum = fileUserList[fileName].size();
-		int packetNum = filesize / 512;
-		if (filesize % 512 > 0) packetNum++;
-		int offset = packetNum / ownerNum;
-		std::vector<std::string> &list = fileUserList[fileName];
-		for (int i = 0; i < ownerNum; i++) {
-			int udpfd;
-			struct sockaddr_in udpaddr;
-			socklen_t len;
-			len = sizeof(udpaddr);
-			bzero(&udpaddr, sizeof(udpaddr));
-			udpaddr.sin_family = AF_INET;
-			int sourceFD = findUserFD(list[i]);
-			udpaddr.sin_port = fdToCliaddr[sourceFD].sin_port;
-			udpaddr.sin_addr = fdToCliaddr[sourceFD].sin_addr;
-			udpfd = socket(AF_INET, SOCK_DGRAM, 0);
-			char sendline[MAX] = {0};
-			struct sockaddr_in &sin = fdToCliaddr[targetFD];
-			int last = (i == ownerNum - 1) ? 1 : 0;
-			if (i == ownerNum - 1) sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, packetNum, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
-			else sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, (i + 1) * offset, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
-			sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
-			close(udpfd);
-		}
-		int udpfd;
-		struct sockaddr_in udpaddr;
-		socklen_t len;
-		len = sizeof(udpaddr);
-		bzero(&udpaddr, sizeof(udpaddr));
-		udpaddr.sin_family = AF_INET;
-		udpaddr.sin_port = fdToCliaddr[targetFD].sin_port;
-		udpaddr.sin_addr = fdToCliaddr[targetFD].sin_addr;
-		udpfd = socket(AF_INET, SOCK_DGRAM, 0);
-		char sendline[MAX] = {0};
-		sprintf(sendline, "download %s %d\n", filename, filesize);
-		sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
-		close(udpfd);
-	}
-	pthread_mutex_unlock(&mutex);
-}
-
 void initialDownload(int sockfd, char *filename) {
 	pthread_mutex_lock(&mutex);
 	std::string fileName = filename;
 	char sendline[MAX] = {0};
 	if (fileSet.find(fileName) == fileSet.end()) {
-		sprintf(sendline, "no");
+		sprintf(sendline, "DF no\n");
 		write(sockfd, sendline, strlen(sendline));
 	} else {
-		sprintf(sendline, "ok");
-		write(sockfd, sendline, strlen(sendline));
 		int filesize = fileSizeMap[fileName];
 		int ownerNum = fileUserList[fileName].size();
 		int packetNum = filesize / 512;
@@ -130,37 +49,19 @@ void initialDownload(int sockfd, char *filename) {
 		int offset = packetNum / ownerNum;
 		std::vector<std::string> &list = fileUserList[fileName];
 		for (int i = 0; i < ownerNum; i++) {
-			int udpfd;
-			struct sockaddr_in udpaddr;
-			socklen_t len;
-			len = sizeof(udpaddr);
-			bzero(&udpaddr, sizeof(udpaddr));
-			udpaddr.sin_family = AF_INET;
-			int sourceFD = findUserFD(list[i]);
-			udpaddr.sin_port = fdToCliaddr[sourceFD].sin_port;
-			udpaddr.sin_addr = fdToCliaddr[sourceFD].sin_addr;
-			udpfd = socket(AF_INET, SOCK_DGRAM, 0);
 			char sendline[MAX] = {0};
+			int sourceFD = findUserFD(list[i]);
 			struct sockaddr_in &sin = fdToCliaddr[sockfd];
 			int last = (i == ownerNum - 1) ? 1 : 0;
 			if (i == ownerNum - 1) sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, packetNum, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
 			else sprintf(sendline, "upload %s %d %d %s %d %d\n", filename, i * offset, (i + 1) * offset, inet_ntoa(sin.sin_addr), ntohs(sin.sin_port), last);
-			sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
-			close(udpfd);
+			write(sourceFD, sendline, strlen(sendline));
 		}
-		int udpfd;
-		struct sockaddr_in udpaddr;
-		socklen_t len;
-		len = sizeof(udpaddr);
-		bzero(&udpaddr, sizeof(udpaddr));
-		udpaddr.sin_family = AF_INET;
-		udpaddr.sin_port = fdToCliaddr[sockfd].sin_port;
-		udpaddr.sin_addr = fdToCliaddr[sockfd].sin_addr;
-		udpfd = socket(AF_INET, SOCK_DGRAM, 0);
-		char sendline[MAX] = {0};
-		sprintf(sendline, "download %s %d\n", filename, filesize);
-		sendto(udpfd, sendline, strlen(sendline), 0, (struct sockaddr *) &udpaddr, len);
-		close(udpfd);
+		char buffer[MAX] = {0}, sendline[MAX] = {0};
+		sprintf(sendline, "DF ok ");
+		sprintf(buffer, "download %s %d\n", filename, filesize);
+		strcat(sendline, buffer);
+		write(sockfd, sendline, strlen(sendline));
 	}
 	pthread_mutex_unlock(&mutex);
 }
@@ -173,7 +74,7 @@ void sendUserIPPort(int sockfd, char *username) {
 	char sendline[MAX] = {0};
 	char port[10] = {0};
 	sprintf(port, " %d", ntohs(sin.sin_port));
-	sprintf(sendline, "%s ", username);
+	sprintf(sendline, "T %s ", username);
 	strcat(sendline, inet_ntoa(sin.sin_addr));
 	strcat(sendline, port);
 	write(sockfd, sendline, strlen(sendline));
@@ -183,12 +84,12 @@ void sendUserIPPort(int sockfd, char *username) {
 void sendFileList(int sockfd) {
 	pthread_mutex_lock(&mutex);
 	char sendline[MAX] = {0};
-	sprintf(sendline, "Files on server are:");
+	sprintf(sendline, "SF --------------------\nFiles on server are:");
 	for (auto file : fileSet) {
 		strcat(sendline, "\n");
 		strcat(sendline, file.data());
 	}
-	strcat(sendline, "\n");
+	strcat(sendline, "\n--------------------\n");
 	write(sockfd, sendline, strlen(sendline));
 	pthread_mutex_unlock(&mutex);
 }
@@ -196,7 +97,7 @@ void sendFileList(int sockfd) {
 void sendUserList(int sockfd) {
 	pthread_mutex_lock(&mutex);
 	char sendline[MAX] = {0};
-	sprintf(sendline, "Online users are:");
+	sprintf(sendline, "SU Online users are:");
 	for (auto user : onlineUserList) {
 		strcat(sendline, "\n");
 		strcat(sendline, user.data());
@@ -258,12 +159,9 @@ inline void removeOnlineStatus(int sockfd) {
 
 void deleteAccount(int sockfd) {
 	pthread_mutex_lock(&mutex);
-	char sendline[MAX] = {0};
 	std::string userName = fdToUsername[sockfd];
 	userAndPassword[userName] = "";
 	puts("A user just deleted his/her account.");
-	sprintf(sendline, "User %s is deleted, logged out.\n", userName.data());
-	write(sockfd, sendline, strlen(sendline));
 	pthread_mutex_unlock(&mutex);
 }
 
@@ -277,10 +175,10 @@ void registerAccount(int sockfd, char *username, char *password) {
 		onlineUserList.push_back(userName);
 		fdToUsername[sockfd] = userName;
 		puts("A user just registered.");
-		sprintf(sendline, "ok");
+		sprintf(sendline, "R ok");
 		write(sockfd, sendline, strlen(sendline));
 	} else {
-		sprintf(sendline, "no");
+		sprintf(sendline, "R no");
 		write(sockfd, sendline, strlen(sendline));
 	}
 	pthread_mutex_unlock(&mutex);
@@ -293,13 +191,13 @@ void loginAccount(int sockfd, char *username, char *password) {
 	std::string passWord = password;
 	if (userAndPassword[userName] == "") {
 		puts("Somebody entered wrong username or password.");
-		sprintf(sendline, "no");
+		sprintf(sendline, "L no");
 		write(sockfd, sendline, strlen(sendline));
 	} else {
 		onlineUserList.push_back(userName);
 		fdToUsername[sockfd] = userName;
 		puts("A user just login.");
-		sprintf(sendline, "ok");
+		sprintf(sendline, "L ok");
 		write(sockfd, sendline, strlen(sendline));
 	}
 	pthread_mutex_unlock(&mutex);
@@ -338,14 +236,6 @@ void *run(void *arg) {
 			char filename[100] = {0};
 			sscanf(recv, "%*s%s", filename);
 			initialDownload(connfd, filename);
-		} else if (!strcmp("stop", command)) {
-			char filename[100] = {0};
-			sscanf(recv, "%*s%s", filename);
-			stopDownload(connfd, filename);
-		} else if (!strcmp("UF", command)) {
-			char filename[100] = {0}, usertosend[100] = {0};
-			sscanf(recv, "%*s%s%s", filename, usertosend);
-			initialUpload(connfd, filename, usertosend);
 		}
 		bzero(recv, sizeof(recv));
 	}
